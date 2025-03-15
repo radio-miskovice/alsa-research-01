@@ -28,21 +28,37 @@ const char * STREAM_INPUT = "Input" ;
 char text[256] ;
 
 typedef struct {
-	char * id ; // identifier for sound open function
-	char * name ; // name to matched against
-	unsigned int deviceNumber ; // device number 
+	char * name ; // name to be matched against
+	char * description ;
+	unsigned int minChannels ;
+	unsigned int maxChannels ;
+	unsigned int minRate ;
+	unsigned int maxRate ;
 } DeviceCollectionItem ;
-
-DeviceCollectionItem ** initializeNewDeviceCollection () {
-	DeviceCollectionItem ** array = realloc( NULL, sizeof( DeviceCollectionItem *));
-	array[0] = NULL ;
-}
 
 DeviceCollectionItem ** NewInputDeviceCollection = NULL ;
 DeviceCollectionItem ** NewOutputDeviceCollection = NULL ;
 
+void InitializeCollections() {
+	if(NewInputDeviceCollection == NULL) {
+		NewInputDeviceCollection = realloc( NewInputDeviceCollection, sizeof(DeviceCollectionItem *) );
+		NewInputDeviceCollection[ 0 ] = NULL ;
+	}
+	if(NewOutputDeviceCollection == NULL) {
+		NewOutputDeviceCollection = realloc( NewOutputDeviceCollection, sizeof(DeviceCollectionItem *) );
+		NewOutputDeviceCollection[ 0 ] = NULL ;
+	}
+}
 
-
+DeviceCollectionItem ** AppendCollectionItem ( DeviceCollectionItem ** collection, DeviceCollectionItem * item ) {
+	int i = 0;
+	while( collection[i] != NULL ) {
+		i++ ;
+	}
+	collection[i++] = item ;
+	collection = realloc( collection, i * sizeof( DeviceCollectionItem * ) );
+	return collection ;
+}
 
 typedef struct {
 	int iotype ;
@@ -101,7 +117,7 @@ device_info_t ** add_new_device( device_info_t * d ) {
 }
 
 int main( int argc, char *argv[]) {
-
+	free( NULL );
 	printf("Debug: started the process\n");
 	printf("Now listing device using hints:\n", AllDeviceCount );
 	destroy_device_list();
@@ -121,6 +137,9 @@ void list_devices(void) {
 	int err ;
 	snd_pcm_stream_t stream ;
 	snd_pcm_t * pcm ;
+	snd_pcm_hw_params_t * params_ptr ;
+	unsigned int minChannels = 0, maxChannels = 0, minRate = 0, maxRate = 0 ;
+
 	char firstline[256] ;
 	char deviceLine[256] ;
 	deviceLine[255] = '\0';
@@ -131,11 +150,15 @@ void list_devices(void) {
 	}
 	n = h;
 	int index =  0 ;
+
+	snd_pcm_hw_params_alloca(&params_ptr);
+
 	while (*n != NULL) {
 		name = snd_device_name_get_hint(*n, "NAME");
 		descr = snd_device_name_get_hint(*n, "DESC");
 		io = snd_device_name_get_hint(*n, "IOID");
-		if( strchr( name, ':') != NULL && io != NULL ) {
+		if( strchr( name, ':') != NULL && io != NULL 
+				&& strncmp(name, "surround", strlen("surround")) != 0 ) {
 			if( strcmp(io, STREAM_OUTPUT) == 0) {
 				stream = SND_PCM_STREAM_PLAYBACK ;
 			}
@@ -173,7 +196,14 @@ void list_devices(void) {
 					printf("\tERROR %d: could not open device %s by name for %s!\n", err, name, io);
 				}
 				else {
-					puts("\tTest open OK.\n");
+					puts("\tTest open OK.");
+					err = snd_pcm_hw_params_any(pcm, params_ptr);
+
+					snd_pcm_hw_params_get_channels_min(params_ptr, &minChannels);
+					snd_pcm_hw_params_get_channels_max(params_ptr, &maxChannels);
+					snd_pcm_hw_params_get_rate_min(params_ptr, &minRate, NULL);
+					snd_pcm_hw_params_get_rate_max(params_ptr, &maxRate, NULL);
+
 					err = snd_pcm_close(pcm) ;
 					if(err != 0)
 					printf("\tbut error %d occurred when closing...\n", err);
@@ -185,6 +215,21 @@ void list_devices(void) {
 						deviceLine[255] = '\0';
 						strcpy( deviceLine + n, firstline );
 						printf( "\tDEVICE '%s'\n", deviceLine );
+						if( minChannels == maxChannels ) {
+							printf("\tChannels: %u \n", minChannels ); 
+						}
+						else {
+							printf("\tChannels: %u ... %u\n", minChannels, maxChannels ); 
+						}
+						int minKilo = (minRate % 1000) == 0 && minRate > 2000 ? minRate / 1000 : 0 ;
+						int maxKilo = (maxRate % 1000) == 0 && minRate > 2000 ? maxRate / 1000 : 0 ;
+						if( minRate == maxRate ) {
+							printf("\tSampling rate: %u%s\n", minKilo ? minKilo : minRate, minKilo ? "k" : "" );
+						}
+						else {
+							printf("\tSampling rate: %u%s .. %u%s\n", minKilo ? minKilo : minRate, minKilo ? "k" : "", 
+								maxKilo ? maxKilo : maxRate, maxKilo ? "k" : ""  );
+						}
 					}
 				}
 			}
@@ -195,6 +240,7 @@ void list_devices(void) {
 		n++;
 	}
 	snd_device_name_free_hint(h);
+	// snd_pcm_hw_params_free( params_ptr );
 }
 
 int GetDeviceCollections() {
