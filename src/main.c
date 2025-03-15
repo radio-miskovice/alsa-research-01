@@ -17,11 +17,32 @@ typedef unsigned char UCHAR;
 void list_devices(void);
 int GetDeviceCollections();
 
-static snd_pcm_stream_t stream = SND_PCM_STREAM_PLAYBACK;
-snd_pcm_t *	playhandle = NULL;
-snd_pcm_t *	rechandle = NULL;
+// static snd_pcm_stream_t stream = SND_PCM_STREAM_PLAYBACK;
+// snd_pcm_t *	playhandle = NULL;
+// snd_pcm_t *	rechandle = NULL;
+
+const char * STREAM_OUTPUT = "Output" ;
+const char * STREAM_INPUT = "Input" ;
+
 
 char text[256] ;
+
+typedef struct {
+	char * id ; // identifier for sound open function
+	char * name ; // name to matched against
+	unsigned int deviceNumber ; // device number 
+} DeviceCollectionItem ;
+
+DeviceCollectionItem ** initializeNewDeviceCollection () {
+	DeviceCollectionItem ** array = realloc( NULL, sizeof( DeviceCollectionItem *));
+	array[0] = NULL ;
+}
+
+DeviceCollectionItem ** NewInputDeviceCollection = NULL ;
+DeviceCollectionItem ** NewOutputDeviceCollection = NULL ;
+
+
+
 
 typedef struct {
 	int iotype ;
@@ -82,48 +103,95 @@ device_info_t ** add_new_device( device_info_t * d ) {
 int main( int argc, char *argv[]) {
 
 	printf("Debug: started the process\n");
-	printf("Debug: number of devices before rescan = %d\n", AllDeviceCount );
+	printf("Now listing device using hints:\n", AllDeviceCount );
 	destroy_device_list();
 	list_devices();
 	destroy_device_list();
-	printf("Debug: end of process\n");
-	GetDeviceCollections();
+	printf("Debug: end of name hints scan\n");
+
+	// printf("\nNow listing the devices by cards and devices:\n");
+	// GetDeviceCollections();
+	// printf("Debug: end of process\n");
+
 }
 
 void list_devices(void) {
 	void **h, **n ;
 	char *name, *descr, *io ;
+	int err ;
+	snd_pcm_stream_t stream ;
+	snd_pcm_t * pcm ;
+	char firstline[256] ;
+	char deviceLine[256] ;
+	deviceLine[255] = '\0';
+
 	if (snd_device_name_hint(-1, "pcm", &h) < 0) {
 		printf("No sound devices found\n");
 		return;
 	}
 	n = h;
 	int index =  0 ;
-	const char * filter = stream == SND_PCM_STREAM_CAPTURE ? "Input" : "Output";
 	while (*n != NULL) {
 		name = snd_device_name_get_hint(*n, "NAME");
 		descr = snd_device_name_get_hint(*n, "DESC");
 		io = snd_device_name_get_hint(*n, "IOID");
-
-		printf("*%2d: (%s) %s\n", index++, io, name);
-		if (descr != NULL) {
-			char * descr1 = descr ;
-			printf(" -   ");
-			while (*descr1) {
-				if (*descr1 == '\n')
-					printf("\n    ");
-				else
-					putchar(*descr1);
-				descr1++;
+		if( strchr( name, ':') != NULL && io != NULL ) {
+			if( strcmp(io, STREAM_OUTPUT) == 0) {
+				stream = SND_PCM_STREAM_PLAYBACK ;
 			}
-			putchar('\n');
-		}
-      	if (name != NULL)
-	      		free(name);
-		if (descr != NULL)
-			free(descr);
-		if (io != NULL)
-			free(io);
+			else if( strcmp(io, STREAM_INPUT) == 0) {
+				stream = SND_PCM_STREAM_CAPTURE ;
+			}
+			/* here the value of stream could hypothetically be undefined
+			   under very special circumstances. Practically that should 
+			   never happen. Can we assign -1 to an enum?
+			*/
+			printf(" %2d: %s\n", index++, name);
+			printf("\t- %s\n", io);
+			if (descr != NULL) {
+				char * descr1 = descr ;
+				printf("\t- ");
+				while (*descr1) {
+					if (*descr1 == '\n')
+					printf("\n\t  ");
+					else
+					putchar(*descr1);
+					descr1++;
+				}
+				putchar('\n');
+				/** copy only the first line of the description **/
+				char * eol ;
+				eol = strchr(descr, '\n');
+				if(eol != NULL ) *eol = '\0' ;
+				strcpy( firstline, descr );
+				if( eol != NULL ) *eol = '\n' ;
+				/** first line copied **/
+
+				/* Here we open the device by name */
+				err = snd_pcm_open( &pcm, name, stream, 0 );
+				if( err != 0 ) {
+					printf("\tERROR %d: could not open device %s by name for %s!\n", err, name, io);
+				}
+				else {
+					puts("\tTest open OK.\n");
+					err = snd_pcm_close(pcm) ;
+					if(err != 0)
+					printf("\tbut error %d occurred when closing...\n", err);
+					else {
+						/* everything is fine, device could be opened, we add it to the collection */
+						strcpy( deviceLine, name );
+						int n = strlen( deviceLine ) ;
+						deviceLine[ n++ ] = ' ' ;
+						deviceLine[255] = '\0';
+						strcpy( deviceLine + n, firstline );
+						printf( "\tDEVICE '%s'\n", deviceLine );
+					}
+				}
+			}
+			if (name != NULL) free(name);
+			if (descr != NULL) free(descr);
+			if (io != NULL) free(io);
+		}		
 		n++;
 	}
 	snd_device_name_free_hint(h);
